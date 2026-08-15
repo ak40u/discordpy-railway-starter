@@ -138,7 +138,10 @@ async def hello(ctx):
     await ctx.send(
         "Hello! 👋"
     )
-
+    
+@bot.command(name="remind")
+async def test_remind(ctx, *args):
+    await ctx.send("✅ REMIND COMMAND WORKS!")
 
 # =========================
 # REMIND
