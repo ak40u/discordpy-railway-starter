@@ -101,7 +101,7 @@ async def hello(ctx):
 
 
 # =========================
-# CREATE REMINDER (UPDATED)
+# CREATE REMINDER
 # =========================
 
 @bot.command()
@@ -204,14 +204,14 @@ async def remind(
         "✅ **Reminder created!**\n\n"
         f"👤 Client: {member.mention}\n"
         f"⏰ Time: **{time}**\n"
-        f"📅 Period: **{start_date}**დან — **{end_date}**მდე\n"
+        f"📅 Period: From **{start_date}** to **{end_date}**\n"
         f"💰 Payment: **{' '.join(message)}**\n"
         "🔁 Daily reminder"
     )
 
 
 # =========================
-# SHOW REMINDERS (UPDATED)
+# SHOW REMINDERS
 # =========================
 
 @bot.command(name="reminders")
@@ -243,7 +243,9 @@ async def show_reminders(ctx):
 async def cancel(ctx, reminder_id: int = None):
     if reminder_id is None:
         await ctx.send(
-            "❌ Please provide a reminder ID.\n\n" "Example:\n" "`!cancel 1`"
+            "❌ Please provide a reminder ID.\n\n"
+            "Example:\n"
+            "`!cancel 1`"
         )
         return
 
@@ -260,7 +262,7 @@ async def cancel(ctx, reminder_id: int = None):
 
 
 # =========================
-# REMINDER LOOP (UPDATED)
+# REMINDER LOOP
 # =========================
 
 async def reminder_loop():
@@ -276,20 +278,16 @@ async def reminder_loop():
         changed = False
 
         for reminder in reminders.copy():
-            # Check if reminder has start_date and end_date constraints
             start_date = reminder.get("start_date")
             end_date = reminder.get("end_date")
 
-            # If dates are set, verify if today is within range
             if start_date and end_date:
                 if not (start_date <= today_str <= end_date):
-                    continue  # Skip if today is outside the active range
+                    continue
 
-            # Not the correct time
             if reminder["time"] != current_time:
                 continue
 
-            # Already sent today
             if reminder["last_sent"] == today_str:
                 continue
 
@@ -334,4 +332,4 @@ if __name__ == "__main__":
     except discord.PrivilegedIntentsRequired:
         log.error("Message Content Intent is not enabled.")
         sys.exit(1)
-        
+            
