@@ -9,8 +9,9 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
 
+
 # =========================
-# LOGGING
+# SETTINGS
 # =========================
 
 logging.basicConfig(
@@ -20,18 +21,15 @@ logging.basicConfig(
 
 log = logging.getLogger("bot")
 
-# =========================
-# TOKEN
-# =========================
-
 TOKEN = os.environ.get("DISCORD_TOKEN")
 
 if not TOKEN:
     log.error("DISCORD_TOKEN is not set in Railway Variables.")
     sys.exit(1)
 
+
 # =========================
-# DISCORD
+# DISCORD BOT
 # =========================
 
 intents = discord.Intents.default()
@@ -42,6 +40,7 @@ bot = commands.Bot(
     command_prefix="!",
     intents=intents
 )
+
 
 # =========================
 # REMINDERS
@@ -64,7 +63,10 @@ def load_reminders():
             return json.load(file)
 
     except Exception as e:
-        log.error("Could not load reminders: %s", e)
+        log.error(
+            "Error loading reminders: %s",
+            e
+        )
         return []
 
 
@@ -83,28 +85,36 @@ def save_reminders():
             )
 
     except Exception as e:
-        log.error("Could not save reminders: %s", e)
+        log.error(
+            "Error saving reminders: %s",
+            e
+        )
 
 
 reminders = load_reminders()
 
+
 # =========================
-# READY
+# BOT READY
 # =========================
 
 @bot.event
 async def on_ready():
 
     log.info(
-        "Logged in as %s (ID: %s)",
+        "Logged in as %s (%s)",
         bot.user,
         bot.user.id
     )
 
-    if not hasattr(bot, "reminder_task"):
+    if not hasattr(
+        bot,
+        "reminder_task"
+    ):
         bot.reminder_task = asyncio.create_task(
             reminder_loop()
         )
+
 
 # =========================
 # PING
@@ -117,6 +127,7 @@ async def ping(ctx):
         f"pong ({bot.latency * 1000:.0f} ms)"
     )
 
+
 # =========================
 # HELLO
 # =========================
@@ -127,6 +138,7 @@ async def hello(ctx):
     await ctx.send(
         "Hello! 👋"
     )
+
 
 # =========================
 # REMIND
@@ -140,40 +152,40 @@ async def remind(
     *message
 ):
 
-    # Check user
+    # No user
     if member is None:
 
         await ctx.send(
-            "❌ Please mention a valid Discord user.\n\n"
+            "❌ Please mention the client.\n\n"
             "Example:\n"
-            "`!remind @User 20:00 2000 payment`"
+            "`!remind @Client 19:00 2000 payment`"
         )
 
         return
 
-    # Check time
+    # No time
     if time is None:
 
         await ctx.send(
-            "❌ Please provide a time.\n\n"
+            "❌ Please specify the time.\n\n"
             "Example:\n"
-            "`!remind @User 20:00 2000 payment`"
+            "`!remind @Client 19:00 2000 payment`"
         )
 
         return
 
-    # Check message
+    # No message
     if not message:
 
         await ctx.send(
-            "❌ Please provide a payment message.\n\n"
+            "❌ Please specify the payment.\n\n"
             "Example:\n"
-            "`!remind @User 20:00 2000 payment`"
+            "`!remind @Client 19:00 2000 payment`"
         )
 
         return
 
-    # Validate time
+    # Check time format
     try:
 
         datetime.strptime(
@@ -184,9 +196,9 @@ async def remind(
     except ValueError:
 
         await ctx.send(
-            "❌ Invalid time.\n"
-            "Please use HH:MM format.\n\n"
-            "Example: `20:00`"
+            "❌ Invalid time format.\n"
+            "Use HH:MM.\n\n"
+            "Example: `19:00`"
         )
 
         return
@@ -208,22 +220,25 @@ async def remind(
         "last_sent": None
     }
 
-    reminders.append(reminder)
+    reminders.append(
+        reminder
+    )
 
     save_reminders()
 
     await ctx.send(
 
-        f"✅ **Reminder created!**\n\n"
+        "✅ **Reminder created!**\n\n"
 
         f"👤 Client: {member.mention}\n"
 
         f"⏰ Time: **{time}**\n"
 
-        f"📝 Payment: **{' '.join(message)}**\n"
+        f"💰 Payment: **{' '.join(message)}**\n"
 
-        f"🔁 Daily reminder"
+        "🔁 Repeats every day."
     )
+
 
 # =========================
 # LIST REMINDERS
@@ -247,16 +262,23 @@ async def reminders(ctx):
     for reminder in reminders:
 
         text += (
+
             f"**#{reminder['id']}**\n"
+
             f"👤 <@{reminder['user_id']}>\n"
-            f"⏰ {reminder['time']}\n"
-            f"📝 {reminder['message']}\n\n"
+
+            f"⏰ **{reminder['time']}**\n"
+
+            f"💰 {reminder['message']}\n\n"
         )
 
-    await ctx.send(text)
+    await ctx.send(
+        text
+    )
+
 
 # =========================
-# CANCEL
+# CANCEL REMINDER
 # =========================
 
 @bot.command()
@@ -268,8 +290,9 @@ async def cancel(
     if reminder_id is None:
 
         await ctx.send(
-            "❌ Please provide the reminder ID.\n"
-            "Example: `!cancel 1`"
+            "❌ Please provide the reminder ID.\n\n"
+            "Example:\n"
+            "`!cancel 1`"
         )
 
         return
@@ -278,12 +301,16 @@ async def cancel(
 
         if reminder["id"] == reminder_id:
 
-            reminders.remove(reminder)
+            reminders.remove(
+                reminder
+            )
 
             save_reminders()
 
             await ctx.send(
-                f"🗑️ Reminder **#{reminder_id}** "
+
+                f"🗑️ Reminder "
+                f"**#{reminder_id}** "
                 f"has been cancelled."
             )
 
@@ -293,8 +320,9 @@ async def cancel(
         "❌ Reminder not found."
     )
 
+
 # =========================
-# REMINDER LOOP
+# REMINDER SYSTEM
 # =========================
 
 async def reminder_loop():
@@ -307,96 +335,4 @@ async def reminder_loop():
 
     while not bot.is_closed():
 
-        now = datetime.now(
-            TIMEZONE
-        )
-
-        current_time = now.strftime(
-            "%H:%M"
-        )
-
-        today = now.strftime(
-            "%Y-%m-%d"
-        )
-
-        changed = False
-
-        for reminder in reminders.copy():
-
-            # Wrong time
-            if reminder["time"] != current_time:
-                continue
-
-            # Already sent today
-            if reminder["last_sent"] == today:
-                continue
-
-            try:
-
-                user = await bot.fetch_user(
-                    reminder["user_id"]
-                )
-
-                await user.send(
-
-                    "🔔 **Payment Reminder**\n\n"
-
-                    f"📝 {reminder['message']}\n\n"
-
-                    "Please don't forget "
-                    "today's payment."
-                )
-
-                reminder["last_sent"] = today
-
-                changed = True
-
-                log.info(
-                    "Reminder #%s sent to %s",
-                    reminder["id"],
-                    user
-                )
-
-            except Exception as e:
-
-                log.error(
-                    "Could not send reminder #%s: %s",
-                    reminder["id"],
-                    e
-                )
-
-        if changed:
-
-            save_reminders()
-
-        await asyncio.sleep(30)
-
-# =========================
-# START BOT
-# =========================
-
-if __name__ == "__main__":
-
-    try:
-
-        bot.run(
-            TOKEN,
-            log_handler=None
-        )
-
-    except discord.LoginFailure:
-
-        log.error(
-            "Discord rejected the bot token."
-        )
-
-        sys.exit(1)
-
-    except discord.PrivilegedIntentsRequired:
-
-        log.error(
-            "Privileged Gateway Intents "
-            "are not enabled."
-        )
-
-        sys.exit(1)
+        now
