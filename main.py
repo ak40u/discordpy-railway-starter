@@ -101,10 +101,11 @@ async def hello(ctx):
 
 
 # =========================
-# CREATE REMINDER
+# CREATE REMINDER (RESTRICTED)
 # =========================
 
 @bot.command()
+@commands.has_role(1538234465992577186)
 async def remind(
     ctx, 
     member: discord.Member = None, 
@@ -211,10 +212,11 @@ async def remind(
 
 
 # =========================
-# SHOW REMINDERS
+# SHOW REMINDERS (RESTRICTED)
 # =========================
 
 @bot.command(name="reminders")
+@commands.has_role(1538234465992577186)
 async def show_reminders(ctx):
     if not reminders:
         await ctx.send("📭 **There are no active reminders.**")
@@ -236,10 +238,11 @@ async def show_reminders(ctx):
 
 
 # =========================
-# CANCEL REMINDER
+# CANCEL REMINDER (RESTRICTED)
 # =========================
 
 @bot.command()
+@commands.has_role(1538234465992577186)
 async def cancel(ctx, reminder_id: int = None):
     if reminder_id is None:
         await ctx.send(
@@ -259,6 +262,18 @@ async def cancel(ctx, reminder_id: int = None):
             return
 
     await ctx.send("❌ **Reminder not found.**")
+
+
+# =========================
+# ERROR HANDLER FOR MISSING ROLE
+# =========================
+
+@remind.error
+@show_reminders.error
+@cancel.error
+async def role_error(ctx, error):
+    if isinstance(error, commands.MissingRole):
+        await ctx.send("❌ You do not have the required role to use this command.")
 
 
 # =========================
@@ -332,4 +347,4 @@ if __name__ == "__main__":
     except discord.PrivilegedIntentsRequired:
         log.error("Message Content Intent is not enabled.")
         sys.exit(1)
-            
+        
