@@ -101,12 +101,17 @@ async def hello(ctx):
 
 
 # =========================
-# CREATE REMINDER
+# CREATE REMINDER (UPDATED)
 # =========================
 
 @bot.command()
 async def remind(
-    ctx, member: discord.Member = None, time: str = None, *message
+    ctx, 
+    member: discord.Member = None, 
+    time: str = None, 
+    start_date: str = None, 
+    end_date: str = None, 
+    *message
 ):
     # Check member
     if member is None:
@@ -114,7 +119,7 @@ async def remind(
             "❌ **Invalid client.**\n\n"
             "Please mention a real Discord user.\n\n"
             "Example:\n"
-            "`!remind @Client 19:00 2000 payment`"
+            "`!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`"
         )
         return
 
@@ -123,7 +128,25 @@ async def remind(
         await ctx.send(
             "❌ **Time is missing.**\n\n"
             "Example:\n"
-            "`!remind @Client 19:00 2000 payment`"
+            "`!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`"
+        )
+        return
+
+    # Check start date
+    if start_date is None:
+        await ctx.send(
+            "❌ **Start date is missing.** Use YYYY-MM-DD format.\n\n"
+            "Example:\n"
+            "`!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`"
+        )
+        return
+
+    # Check end date
+    if end_date is None:
+        await ctx.send(
+            "❌ **End date is missing.** Use YYYY-MM-DD format.\n\n"
+            "Example:\n"
+            "`!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`"
         )
         return
 
@@ -132,26 +155,44 @@ async def remind(
         await ctx.send(
             "❌ **Payment information is missing.**\n\n"
             "Example:\n"
-            "`!remind @Client 19:00 2000 payment`"
+            "`!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`"
         )
         return
 
-    # Validate time
+    # Validate time format (HH:MM)
     try:
         datetime.strptime(time, "%H:%M")
     except ValueError:
         await ctx.send(
-            "❌ **Invalid time.**\n\n"
-            "Use HH:MM format.\n"
-            "Example: `19:00`"
+            "❌ **Invalid time.** Use HH:MM format (e.g. `19:00`)."
         )
         return
 
-    # Create reminder
+    # Validate start date format (YYYY-MM-DD)
+    try:
+        datetime.strptime(start_date, "%Y-%m-%d")
+    except ValueError:
+        await ctx.send(
+            "❌ **Invalid start date.** Use YYYY-MM-DD format (e.g. `2026-08-15`)."
+        )
+        return
+
+    # Validate end date format (YYYY-MM-DD)
+    try:
+        datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        await ctx.send(
+            "❌ **Invalid end date.** Use YYYY-MM-DD format (e.g. `2026-09-15`)."
+        )
+        return
+
+    # Create reminder object
     reminder = {
         "id": max([r["id"] for r in reminders], default=0) + 1,
         "user_id": member.id,
         "time": time,
+        "start_date": start_date,
+        "end_date": end_date,
         "message": " ".join(message),
         "last_sent": None,
     }
@@ -163,17 +204,16 @@ async def remind(
         "✅ **Reminder created!**\n\n"
         f"👤 Client: {member.mention}\n"
         f"⏰ Time: **{time}**\n"
+        f"📅 Period: **{start_date}**დან — **{end_date}**მდე\n"
         f"💰 Payment: **{' '.join(message)}**\n"
         "🔁 Daily reminder"
     )
 
 
 # =========================
-# SHOW REMINDERS
+# SHOW REMINDERS (UPDATED)
 # =========================
 
-# სახელი შევცვალეთ, რომ გლობალურ ცვლადს არ დაემთხვეს,
-# მაგრამ ბრძანების სახელი დარჩა "reminders"
 @bot.command(name="reminders")
 async def show_reminders(ctx):
     if not reminders:
@@ -183,10 +223,12 @@ async def show_reminders(ctx):
     text = "📋 **Active Reminders**\n\n"
 
     for reminder in reminders:
+        start = reminder.get("start_date", "N/A")
+        end = reminder.get("end_date", "N/A")
         text += (
             f"**#{reminder['id']}**\n"
             f"👤 <@{reminder['user_id']}>\n"
-            f"⏰ **{reminder['time']}**\n"
+            f"⏰ **{reminder['time']}** | 📅 {start} to {end}\n"
             f"💰 {reminder['message']}\n\n"
         )
 
@@ -218,7 +260,7 @@ async def cancel(ctx, reminder_id: int = None):
 
 
 # =========================
-# REMINDER LOOP
+# REMINDER LOOP (UPDATED)
 # =========================
 
 async def reminder_loop():
@@ -229,21 +271,29 @@ async def reminder_loop():
     while not bot.is_closed():
         now = datetime.now(TIMEZONE)
         current_time = now.strftime("%H:%M")
-        today = now.strftime("%Y-%m-%d")
+        today_str = now.strftime("%Y-%m-%d")
 
         changed = False
 
         for reminder in reminders.copy():
+            # Check if reminder has start_date and end_date constraints
+            start_date = reminder.get("start_date")
+            end_date = reminder.get("end_date")
+
+            # If dates are set, verify if today is within range
+            if start_date and end_date:
+                if not (start_date <= today_str <= end_date):
+                    continue  # Skip if today is outside the active range
+
             # Not the correct time
             if reminder["time"] != current_time:
                 continue
 
             # Already sent today
-            if reminder["last_sent"] == today:
+            if reminder["last_sent"] == today_str:
                 continue
 
             try:
-                # ვცდილობთ ჯერ ქეშიდან ამოვიღოთ, თუ არადა შემდეგ ვქაჩავთ
                 user = bot.get_user(reminder["user_id"])
                 if user is None:
                     user = await bot.fetch_user(reminder["user_id"])
@@ -251,10 +301,11 @@ async def reminder_loop():
                 await user.send(
                     "🔔 **Payment Reminder**\n\n"
                     f"💰 {reminder['message']}\n\n"
+                    f"📅 Active Period: {start_date} to {end_date}\n"
                     "Please don't forget today's payment."
                 )
 
-                reminder["last_sent"] = today
+                reminder["last_sent"] = today_str
                 changed = True
 
                 log.info("Reminder #%s sent to %s", reminder["id"], user)
