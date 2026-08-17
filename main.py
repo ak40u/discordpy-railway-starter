@@ -10,13 +10,13 @@ from collections import defaultdict
 import time
 
 try:
-    from google import genai
+    import google.generativeai as genai
     import discord
     from discord.ext import commands
 except ImportError:
     import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "google-genai"])
-    from google import genai
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "google-generativeai"])
+    import google.generativeai as genai
     import discord
     from discord.ext import commands
 
@@ -31,9 +31,11 @@ if not TOKEN:
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
-    ai_client = genai.Client(api_key=GEMINI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    # ვიყენებთ მოდელს v1 პროტოკოლის თავსებადობით
+    ai_model = genai.GenerativeModel("gemini-1.5-flash")
 else:
-    ai_client = None
+    ai_model = None
 
 LOG_CHANNEL_ID = 1538815616612565032
 TRANSACTION_CHANNEL_ID = 1538818906351730749
@@ -109,15 +111,12 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                if ai_client:
-                    prompt = f"შენ ხარ დამხმარე AI ოპერატორი. მომხმარებელმა მოწერა: {message.content}"
-                    response = ai_client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt,
-                    )
+                if ai_model:
+                    prompt = f"შენ ხარ დამხმარე AI ოპერატორი Qobank-ში. მომხმარებელმა მოწერა: {message.content}"
+                    response = ai_model.generate_content(prompt)
                     await message.channel.send(response.text)
                 else:
-                    await message.channel.send("AI გასაღები არ არის მითითებული.")
+                    await message.channel.send("Gemini გასაღები არ არის მითითებული.")
             except Exception as e:
                 log.error(f"AI Error: {e}")
                 await message.channel.send(f"AI Error Details: {e}")
@@ -348,12 +347,11 @@ async def reminder_loop():
             except Exception as e:
                 log.error("Could not send reminder #%s: %s", r["id"], e)
 
-        v1_changed = changed
-        if v1_changed:
+        if changed:
             save_json(REMINDERS_FILE, reminders)
 
         await asyncio.sleep(30)
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-    
+            
