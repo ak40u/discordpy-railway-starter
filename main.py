@@ -315,7 +315,7 @@ async def cancel(ctx, reminder_id: int = None):
 
 @bot.command()
 async def ping(ctx):
-    await ctx.send(text=f"Pong! Latency: {round(bot.latency * 1000)}ms")
+    await ctx.send(f"Pong! Latency: {round(bot.latency * 1000)}ms")
 
 async def reminder_loop():
     await bot.wait_until_ready()
@@ -354,3 +354,4 @@ async def reminder_loop():
 
 if __name__ == "__main__":
     bot.run(TOKEN)
+                    
