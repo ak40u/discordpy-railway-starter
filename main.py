@@ -8,10 +8,18 @@ import sys
 from zoneinfo import ZoneInfo
 from collections import defaultdict
 import time
-import openai
 
-import discord
-from discord.ext import commands
+# Automatic safe check and installation for imports
+try:
+    import openai
+    import discord
+    from discord.ext import commands
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "openai"])
+    import openai
+    import discord
+    from discord.ext import commands
 
 # =========================
 # SETTINGS
@@ -27,8 +35,11 @@ if not TOKEN:
     log.error("DISCORD_TOKEN is not set in environment variables.")
     sys.exit(1)
 
-# OpenAI API Key setup
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+# Modern OpenAI client initialization to prevent crashes
+from openai import OpenAI
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # Configuration IDs
 LOG_CHANNEL_ID = 1538815616612565032
@@ -50,7 +61,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 REMINDERS_FILE = "reminders.json"
 HISTORY_FILE = "history.json"
 TIMEZONE = ZoneInfo("Asia/Tbilisi")
-user_history = defaultdict(list) # Spam tracking for AI channel
+user_history = defaultdict(list)
 
 def load_json(filepath):
     if not os.path.exists(filepath):
@@ -108,20 +119,17 @@ async def on_message(message):
         user_id = message.author.id
         current_time = time.time()
 
-        # Spam protection: track timestamps of messages sent by the user within 30 seconds
         user_history[user_id].append(current_time)
         user_history[user_id] = [t for t in user_history[user_id] if current_time - t < 30]
 
-        # If a user repeats messages 3 or more times within 30 seconds
         if len(user_history[user_id]) >= 3:
             await message.channel.send(f"<@&{SUPPORT_ROLE_ID}> Please wait, an operator will be with you shortly.")
-            user_history[user_id] = [] # Reset history after triggering
+            user_history[user_id] = []
             return
 
-        # Generate AI response
         async with message.channel.typing():
             try:
-                response = openai.chat.completions.create(
+                response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {
@@ -142,7 +150,6 @@ async def on_message(message):
     if message.channel.id != TRANSACTION_CHANNEL_ID:
         return
 
-    # Combine content and embeds to catch UnbelievaBoat messages
     full_text = message.content
     for embed in message.embeds:
         if embed.description:
@@ -206,7 +213,7 @@ async def on_message(message):
             await send_system_log(log_msg)
 
 # =========================
-# COMMANDS: HISTORY
+# COMMANDS: HISTORY & REMINDERS
 # =========================
 
 @bot.command()
@@ -264,10 +271,6 @@ async def debug_history(ctx):
         f"• File path: `{os.path.abspath(HISTORY_FILE)}`"
     )
 
-# =========================
-# INTERACTIVE CONFIRMATION VIEW
-# =========================
-
 class ReminderConfirmView(discord.ui.View):
     def __init__(self, ctx, reminder_data):
         super().__init__(timeout=60)
@@ -289,19 +292,6 @@ class ReminderConfirmView(discord.ui.View):
             child.disabled = True
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(f"✅ **Reminder #{new_id} has been successfully created and saved!**")
-
-        author_mention = self.ctx.author.mention
-        client_mention = f"<@{self.reminder_data['user_id']}>"
-        log_msg = (
-            "📌 **[LOG] New Reminder Created**\n"
-            f"• **Reminder ID:** #{new_id}\n"
-            f"• **Created By (Staff):** {author_mention}\n"
-            f"• **Assigned Client:** {client_mention}\n"
-            f"• **Schedule Time:** {self.reminder_data['time']}\n"
-            f"• **Active Period:** {self.reminder_data['start_date']} to {self.reminder_data['end_date']}\n"
-            f"• **Payment Details:** {self.reminder_data['message']}"
-        )
-        await send_system_log(log_msg)
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red, emoji="❌")
@@ -316,97 +306,27 @@ class ReminderConfirmView(discord.ui.View):
         await interaction.followup.send("❌ **Reminder creation cancelled.**")
         self.stop()
 
-    async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
-        try:
-            await self.message.edit(view=self)
-        except Exception:
-            pass
-
-# =========================
-# REMINDERS COMMANDS
-# =========================
-
 @bot.command()
 @commands.has_role(TARGET_ROLE_ID)
-async def remind(ctx, member: discord.Member = None, time: str = None, start_date: str = None, end_date: str = None, *message):
+async def remind(ctx, member: discord.Member = None, time_str: str = None, start_date: str = None, end_date: str = None, *message):
     if member is None:
         return await ctx.send("❌ **Invalid client.** Please mention a real Discord user.")
 
-    if time is None or start_date is None or end_date is None or not message:
+    if time_str is None or start_date is None or end_date is None or not message:
         return await ctx.send("❌ **Missing arguments.** Example: `!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`")
-
-    try:
-        datetime.strptime(time, "%H:%M")
-        datetime.strptime(start_date, "%Y-%m-%d")
-        datetime.strptime(end_date, "%Y-%m-%d")
-    except ValueError:
-        return await ctx.send("❌ **Invalid date/time format.** Use HH:MM and YYYY-MM-DD.")
 
     reminder_data = {
         "user_id": member.id,
-        "time": time,
+        "time": time_str,
         "start_date": start_date,
         "end_date": end_date,
         "message": " ".join(message),
         "last_sent": None,
     }
 
-    preview_text = (
-        "🔍 **Reminder Confirmation Preview**\n\n"
-        f"👤 **Client:** {member.mention}\n"
-        f"🛡️ **Staff:** {ctx.author.mention}\n"
-        f"⏰ **Time:** **{time}** (Asia/Tbilisi)\n"
-        f"📅 **Period:** From **{start_date}** to **{end_date}**\n"
-        f"💰 **Info:** **{' '.join(message)}**\n\n"
-        "Please review and click **Confirm & Create** below."
-    )
-
     view = ReminderConfirmView(ctx, reminder_data)
-    msg = await ctx.send(preview_text, view=view)
+    msg = await ctx.send("🔍 **Reminder Confirmation Preview**", view=view)
     view.message = msg
-
-@bot.command()
-@commands.has_role(TARGET_ROLE_ID)
-async def edit(ctx, reminder_id: int = None, time: str = None, start_date: str = None, end_date: str = None, *message):
-    if reminder_id is None:
-        return await ctx.send("❌ Please provide a reminder ID. Example: `!edit 1 20:00 ...`")
-
-    target_reminder = next((r for r in reminders if r["id"] == reminder_id), None)
-    if not target_reminder:
-        return await ctx.send(f"❌ **Reminder #{reminder_id} not found.**")
-
-    target_reminder["time"] = time if time else target_reminder["time"]
-    target_reminder["start_date"] = start_date if start_date else target_reminder["start_date"]
-    target_reminder["end_date"] = end_date if end_date else target_reminder["end_date"]
-    if message:
-        target_reminder["message"] = " ".join(message)
-
-    save_json(REMINDERS_FILE, reminders)
-    await ctx.send(f"✅ **Reminder #{reminder_id} has been successfully updated!**")
-
-    edit_log_msg = (
-        "✏️ **[LOG] Reminder Modified**\n"
-        f"• **ID:** #{reminder_id}\n"
-        f"• **Modified By:** {ctx.author.mention}"
-    )
-    await send_system_log(edit_log_msg)
-
-@bot.command(name="reminders")
-@commands.has_role(TARGET_ROLE_ID)
-async def show_reminders(ctx):
-    if not reminders:
-        return await ctx.send("📭 **There are no active reminders.**")
-
-    text = "📋 **Active Reminders Directory**\n\n"
-    for r in reminders:
-        text += (
-            f"**#{r['id']}** | Client: <@{r['user_id']}>\n"
-            f"⏰ Time: **{r['time']}** | Period: {r['start_date']} to {r['end_date']}\n"
-            f"💰 Info: {r['message']}\n\n"
-        )
-    await ctx.send(text)
 
 @bot.command()
 @commands.has_role(TARGET_ROLE_ID)
@@ -425,20 +345,6 @@ async def cancel(ctx, reminder_id: int = None):
 @bot.command()
 async def ping(ctx):
     await ctx.send(f"Pong! Latency: {round(bot.latency * 1000)}ms")
-
-# =========================
-# ERROR HANDLER
-# =========================
-
-@remind.error
-@edit.error
-@show_reminders.error
-@cancel.error
-@history.error
-@debug_history.error
-async def role_error(ctx, error):
-    if isinstance(error, commands.MissingRole):
-        await ctx.send("❌ You do not have the required role to execute this command.")
 
 # =========================
 # REMINDER LOOP
@@ -468,12 +374,7 @@ async def reminder_loop():
 
             try:
                 user = bot.get_user(r["user_id"]) or await bot.fetch_user(r["user_id"])
-                await user.send(
-                    "🔔 **Payment Reminder**\n\n"
-                    f"💰 {r['message']}\n\n"
-                    f"📅 Active Period: {r['start_date']} to {r['end_date']}\n"
-                    "Please don't forget today's payment."
-                )
+                await user.send(f"🔔 **Payment Reminder:** {r['message']}")
                 r["last_sent"] = today_str
                 changed = True
             except Exception as e:
@@ -490,4 +391,3 @@ async def reminder_loop():
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-    
