@@ -117,7 +117,7 @@ async def hello(ctx):
 
 
 # =========================
-# AUTOMATIC UNBELIEVABOAT LISTENER (FIXED)
+# AUTOMATIC UNBELIEVABOAT LISTENER (FIXED FOR EMOJI & FORMAT)
 # =========================
 
 @bot.event
@@ -130,20 +130,22 @@ async def on_message(message):
     if message.author.id == bot.user.id:
         return
 
-    # Check for UnbelievaBoat confirmation message format
-    if "has received your" in message.content:
-        content = message.content
+    content = message.content
+    log.info("Inspecting message in channel: %s", content)
 
-        # Extract Recipient ID using Regex
+    # Check if it's UnbelievaBoat's give confirmation message
+    if "has received your" in content:
+        # Extract Recipient ID
         recipient_match = re.search(r"<@!?(\d+)>", content)
-        # Extract Amount
-        amount_match = re.search(r"has received your.*?\s+([\d,]+(?:\.\d+)?)", content)
+        
+        # Extract Amount (handles emojis, e.g., "has received your 🪙 1" or similar)
+        amount_match = re.search(r"has received your.*?(?:<a?:\w+:\d+>|\W)*([\d,]+(?:\.\d+)?)", content)
 
         if recipient_match:
             recipient_id = int(recipient_match.group(1))
             amount_str = amount_match.group(1).replace(",", "") if amount_match else "Unknown"
             
-            # Try to find sender from message reference or recent messages in channel
+            # Find sender from reply reference or recent channel messages
             sender_id = None
             if message.reference and message.reference.message_id:
                 try:
@@ -152,11 +154,10 @@ async def on_message(message):
                 except Exception:
                     pass
             
-            # Fallback: check last 5 messages in the channel to find who used !give
             if not sender_id:
                 try:
-                    async for hist_msg in message.channel.history(limit=5, before=message):
-                        if hist_msg.content.lower().startswith("!give") or "give" in hist_msg.content.lower():
+                    async for hist_msg in message.channel.history(limit=10, before=message):
+                        if hist_msg.content.lower().startswith("!give"):
                             sender_id = hist_msg.author.id
                             break
                 except Exception:
@@ -175,35 +176,34 @@ async def on_message(message):
             history.append(tx_entry)
             save_json(HISTORY_FILE, history)
 
-            # Confirm transaction logging in channel
-            sender_mention = f"<@{sender_id}>" if sender_id else "Unknown User"
             await message.channel.send(
                 f"📥 **Transaction Saved to History!**\n"
-                f"• **Sender:** {sender_mention}\n"
                 f"• **Recipient:** <@{recipient_id}>\n"
                 f"• **Amount:** `{amount_str}`\n"
                 f"• **Date:** `{now_str}`"
             )
 
-            # Send detailed log to Log Channel
+            sender_mention = f"<@{sender_id}>" if sender_id else "Unknown"
             log_msg = (
-                "💳 **[LOG] Currency Transfer Detected**\n"
-                f"• **Transaction ID:** #{tx_entry['id']}\n"
+                "💳 **[LOG] Currency Transfer Recorded**\n"
+                f"• **ID:** #{tx_entry['id']}\n"
                 f"• **Sender:** {sender_mention}\n"
                 f"• **Recipient:** <@{recipient_id}>\n"
-                f"• **Amount:** `{amount_str}`\n"
-                f"• **Timestamp:** `{now_str}`"
+                f"• **Amount:** `{amount_str}`"
             )
             await send_system_log(log_msg)
 
 
 # =========================
-# HISTORY COMMAND (`!history`) (FIXED)
+# HISTORY COMMAND (`!history`)
 # =========================
 
 @bot.command()
 @commands.has_role(TARGET_ROLE_ID)
 async def history(ctx, member: discord.Member = None):
+    global history
+    history = load_json(HISTORY_FILE)
+
     if not history:
         await ctx.send("📭 **No transactions recorded in history yet.**")
         return
@@ -228,7 +228,8 @@ async def history(ctx, member: discord.Member = None):
 
     text = f"{title}\n\n"
     for tx in recent_tx:
-        sender = f"<@{tx['sender_id']}>" if tx.get("sender_id") else "Unknown"
+        sender_id = tx.get('sender_id')
+        sender = f"<@{sender_id}>" if sender_id else "Unknown"
         text += (
             f"**#{tx['id']}** | 🕒 `{tx['timestamp']}`\n"
             f"• **Sender:** {sender}\n"
@@ -237,6 +238,25 @@ async def history(ctx, member: discord.Member = None):
         )
 
     await ctx.send(text)
+
+
+# =========================
+# DEBUG COMMAND (`!debug_history`)
+# =========================
+
+@bot.command()
+@commands.has_role(TARGET_ROLE_ID)
+async def debug_history(ctx):
+    global history
+    history = load_json(HISTORY_FILE)
+    total_count = len(history)
+    file_exists = os.path.exists(HISTORY_FILE)
+    await ctx.send(
+        f"🛠️ **History Debug Info:**\n"
+        f"• File exists: `{file_exists}`\n"
+        f"• Total records in memory: `{total_count}`\n"
+        f"• History file path: `{os.path.abspath(HISTORY_FILE)}`"
+    )
 
 
 # =========================
@@ -455,6 +475,7 @@ async def cancel(ctx, reminder_id: int = None):
 @show_reminders.error
 @cancel.error
 @history.error
+@debug_history.error
 async def role_error(ctx, error):
     if isinstance(error, commands.MissingRole):
         await ctx.send("❌ You do not have the required role to execute this command.")
@@ -520,4 +541,4 @@ if __name__ == "__main__":
     except Exception as e:
         log.error("Fatal error: %s", e)
         sys.exit(1)
-        
+            
