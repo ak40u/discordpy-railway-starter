@@ -119,7 +119,7 @@ async def on_message(message):
                     await message.channel.send("AI გასაღები არ არის მითითებული.")
             except Exception as e:
                 log.error(f"AI Error: {e}")
-                await message.channel.send("AI Error occurred, check logs.")
+                await message.channel.send(f"AI Error Details: {e}")
         return
 
     if message.channel.id != TRANSACTION_CHANNEL_ID:
@@ -354,4 +354,4 @@ async def reminder_loop():
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-    
+                    
