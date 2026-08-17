@@ -32,16 +32,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    try:
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        if available_models:
-            ai_model = genai.GenerativeModel(available_models[0])
-            log.info(f"Using AI Model: {available_models[0]}")
-        else:
-            ai_model = genai.GenerativeModel("gemini-1.5-flash")
-    except Exception as e:
-        log.error(f"Failed to list models: {e}")
-        ai_model = genai.GenerativeModel("gemini-1.5-flash")
+    ai_model = genai.GenerativeModel("gemini-2.6-flash")
 else:
     ai_model = None
 
@@ -363,4 +354,4 @@ async def reminder_loop():
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-            
+    
