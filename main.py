@@ -10,13 +10,13 @@ from collections import defaultdict
 import time
 
 try:
-    import google.generativeai as genai
+    from google import genai
     import discord
     from discord.ext import commands
 except ImportError:
     import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "google-generativeai"])
-    import google.generativeai as genai
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "google-genai"])
+    from google import genai
     import discord
     from discord.ext import commands
 
@@ -31,14 +31,9 @@ if not TOKEN:
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    try:
-        genai.client._api_version = "v1"
-    except Exception:
-        pass
-    ai_model = genai.GenerativeModel("models/gemini-1.5-flash")
+    ai_client = genai.Client(api_key=GEMINI_API_KEY)
 else:
-    ai_model = None
+    ai_client = None
 
 LOG_CHANNEL_ID = 1538815616612565032
 TRANSACTION_CHANNEL_ID = 1538818906351730749
@@ -114,11 +109,13 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                if ai_model:
+                if ai_client:
                     prompt = f"შენ ხარ დამხმარე AI ოპერატორი. მომხმარებელმა მოწერა: {message.content}"
-                    response = ai_model.generate_content(prompt)
-                    reply = response.text
-                    await message.channel.send(reply)
+                    response = ai_client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=prompt,
+                    )
+                    await message.channel.send(response.text)
                 else:
                     await message.channel.send("AI გასაღები არ არის მითითებული.")
             except Exception as e:
@@ -337,7 +334,7 @@ async def reminder_loop():
                 changed = True
 
         for r in reminders.copy():
-            if r.get("start_date") and r.get("end_date") and not (r["start_date"] <= today_str <= r["end_date"]):
+            if r.get("start_date"] and r.get("end_date") and not (r["start_date"] <= today_str <= r["end_date"]):
                 continue
 
             if r["time"] != current_time or r["last_sent"] == today_str:
@@ -351,11 +348,12 @@ async def reminder_loop():
             except Exception as e:
                 log.error("Could not send reminder #%s: %s", r["id"], e)
 
-        if changed:
+        v1_changed = changed
+        if v1_changed:
             save_json(REMINDERS_FILE, reminders)
 
         await asyncio.sleep(30)
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-            
+    
