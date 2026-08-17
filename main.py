@@ -6,6 +6,9 @@ import os
 import re
 import sys
 from zoneinfo import ZoneInfo
+from collections import defaultdict
+import time
+import openai
 
 import discord
 from discord.ext import commands
@@ -24,10 +27,15 @@ if not TOKEN:
     log.error("DISCORD_TOKEN is not set in environment variables.")
     sys.exit(1)
 
+# OpenAI API Key setup
+openai.api_key = os.environ.get("OPENAI_API_KEY")
+
 # Configuration IDs
 LOG_CHANNEL_ID = 1538815616612565032
 TRANSACTION_CHANNEL_ID = 1538818906351730749
+OPERATOR_CHANNEL_ID = 1538864392546951218
 TARGET_ROLE_ID = 1538234465992577186
+SUPPORT_ROLE_ID = 1538234465992577186
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -42,6 +50,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 REMINDERS_FILE = "reminders.json"
 HISTORY_FILE = "history.json"
 TIMEZONE = ZoneInfo("Asia/Tbilisi")
+user_history = defaultdict(list) # Spam tracking for AI channel
 
 def load_json(filepath):
     if not os.path.exists(filepath):
@@ -84,17 +93,53 @@ async def on_ready():
         bot.reminder_task = asyncio.create_task(reminder_loop())
 
 # =========================
-# UNBELIEVABOAT LISTENER
+# MESSAGE LISTENERS (TRANSACTIONS & AI)
 # =========================
 
 @bot.event
 async def on_message(message):
     await bot.process_commands(message)
 
-    if message.channel.id != TRANSACTION_CHANNEL_ID:
+    if message.author.id == bot.user.id:
         return
 
-    if message.author.id == bot.user.id:
+    # 1. AI Support Operator Logic
+    if message.channel.id == OPERATOR_CHANNEL_ID:
+        user_id = message.author.id
+        current_time = time.time()
+
+        # Spam protection: track timestamps of messages sent by the user within 30 seconds
+        user_history[user_id].append(current_time)
+        user_history[user_id] = [t for t in user_history[user_id] if current_time - t < 30]
+
+        # If a user repeats messages 3 or more times within 30 seconds
+        if len(user_history[user_id]) >= 3:
+            await message.channel.send(f"<@&{SUPPORT_ROLE_ID}> Please wait, an operator will be with you shortly.")
+            user_history[user_id] = [] # Reset history after triggering
+            return
+
+        # Generate AI response
+        async with message.channel.typing():
+            try:
+                response = openai.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {
+                            "role": "system", 
+                            "content": "You are a professional support operator. Always respond in English. If the user writes in another language, politely reply in English requesting them to continue the conversation in English so you can assist them effectively."
+                        },
+                        {"role": "user", "content": message.content}
+                    ]
+                )
+                reply = response.choices[0].message.content
+                await message.channel.send(reply)
+            except Exception as e:
+                log.error(f"AI Error: {e}")
+                await message.channel.send("Sorry, I am having trouble connecting to the support system right now.")
+        return
+
+    # 2. Transaction Logging Logic
+    if message.channel.id != TRANSACTION_CHANNEL_ID:
         return
 
     # Combine content and embeds to catch UnbelievaBoat messages
@@ -445,3 +490,4 @@ async def reminder_loop():
 
 if __name__ == "__main__":
     bot.run(TOKEN)
+    
