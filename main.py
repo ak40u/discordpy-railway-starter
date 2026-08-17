@@ -9,25 +9,18 @@ from zoneinfo import ZoneInfo
 from collections import defaultdict
 import time
 
-# Automatic safe check and installation for imports
 try:
-    import openai
+    import google.generativeai as genai
     import discord
     from discord.ext import commands
 except ImportError:
     import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "openai"])
-    import openai
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "google-generativeai"])
+    import google.generativeai as genai
     import discord
     from discord.ext import commands
 
-# =========================
-# SETTINGS
-# =========================
-
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -35,13 +28,14 @@ if not TOKEN:
     log.error("DISCORD_TOKEN is not set in environment variables.")
     sys.exit(1)
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Modern OpenAI client initialization to prevent crashes
-from openai import OpenAI
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    ai_model = genai.GenerativeModel("gemini-1.5-flash")
+else:
+    ai_model = None
 
-# Configuration IDs
 LOG_CHANNEL_ID = 1538815616612565032
 TRANSACTION_CHANNEL_ID = 1538818906351730749
 OPERATOR_CHANNEL_ID = 1538864392546951218
@@ -53,10 +47,6 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# =========================
-# STORAGE MANAGEMENT
-# =========================
 
 REMINDERS_FILE = "reminders.json"
 HISTORY_FILE = "history.json"
@@ -93,19 +83,11 @@ async def send_system_log(content: str):
     except Exception as e:
         log.error("Failed to send system log: %s", e)
 
-# =========================
-# BOT READY
-# =========================
-
 @bot.event
 async def on_ready():
     log.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
     if not hasattr(bot, "reminder_task"):
         bot.reminder_task = asyncio.create_task(reminder_loop())
-
-# =========================
-# MESSAGE LISTENERS (TRANSACTIONS & AI)
-# =========================
 
 @bot.event
 async def on_message(message):
@@ -114,7 +96,6 @@ async def on_message(message):
     if message.author.id == bot.user.id:
         return
 
-    # 1. AI Support Operator Logic
     if message.channel.id == OPERATOR_CHANNEL_ID:
         user_id = message.author.id
         current_time = time.time()
@@ -129,24 +110,18 @@ async def on_message(message):
 
         async with message.channel.typing():
             try:
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {
-                            "role": "system", 
-                            "content": "You are a professional support operator. Always respond in English. If the user writes in another language, politely reply in English requesting them to continue the conversation in English so you can assist them effectively."
-                        },
-                        {"role": "user", "content": message.content}
-                    ]
-                )
-                reply = response.choices[0].message.content
-                await message.channel.send(reply)
+                if ai_model:
+                    prompt = f"შენ ხარ დამხმარე AI ოპერატორი. მომხმარებელმა მოწერა: {message.content}"
+                    response = ai_model.generate_content(prompt)
+                    reply = response.text
+                    await message.channel.send(reply)
+                else:
+                    await message.channel.send("AI გასაღები არ არის მითითებული.")
             except Exception as e:
                 log.error(f"AI Error: {e}")
                 await message.channel.send("Sorry, I am having trouble connecting to the support system right now.")
         return
 
-    # 2. Transaction Logging Logic
     if message.channel.id != TRANSACTION_CHANNEL_ID:
         return
 
@@ -211,10 +186,6 @@ async def on_message(message):
                 f"• **Amount:** `{amount_str}`"
             )
             await send_system_log(log_msg)
-
-# =========================
-# COMMANDS: HISTORY & REMINDERS
-# =========================
 
 @bot.command()
 @commands.has_role(TARGET_ROLE_ID)
@@ -344,11 +315,7 @@ async def cancel(ctx, reminder_id: int = None):
 
 @bot.command()
 async def ping(ctx):
-    await ctx.send(f"Pong! Latency: {round(bot.latency * 1000)}ms")
-
-# =========================
-# REMINDER LOOP
-# =========================
+    await ctx.send(text=f"Pong! Latency: {round(bot.latency * 1000)}ms")
 
 async def reminder_loop():
     await bot.wait_until_ready()
@@ -384,10 +351,6 @@ async def reminder_loop():
             save_json(REMINDERS_FILE, reminders)
 
         await asyncio.sleep(30)
-
-# =========================
-# RUN BOT
-# =========================
 
 if __name__ == "__main__":
     bot.run(TOKEN)
