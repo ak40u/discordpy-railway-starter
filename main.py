@@ -117,42 +117,48 @@ async def hello(ctx):
 
 
 # =========================
-# AUTOMATIC UNBELIEVABOAT LISTENER
+# AUTOMATIC UNBELIEVABOAT LISTENER (FIXED)
 # =========================
 
 @bot.event
 async def on_message(message):
-    # Process commands first
     await bot.process_commands(message)
 
-    # Listen only in the transaction channel
     if message.channel.id != TRANSACTION_CHANNEL_ID:
         return
 
-    # Don't listen to self
     if message.author.id == bot.user.id:
         return
 
     # Check for UnbelievaBoat confirmation message format
-    # Example: "<@!1203065448065798144> has received your <:unbelievacoin:...> 2"
     if "has received your" in message.content:
         content = message.content
 
         # Extract Recipient ID using Regex
         recipient_match = re.search(r"<@!?(\d+)>", content)
-        # Extract Amount (matches integer or float after currency symbol/text)
+        # Extract Amount
         amount_match = re.search(r"has received your.*?\s+([\d,]+(?:\.\d+)?)", content)
 
-        if recipient_match and amount_match:
+        if recipient_match:
             recipient_id = int(recipient_match.group(1))
-            amount_str = amount_match.group(1).replace(",", "")
+            amount_str = amount_match.group(1).replace(",", "") if amount_match else "Unknown"
             
-            # Identify sender (from reference/reply or context)
+            # Try to find sender from message reference or recent messages in channel
             sender_id = None
             if message.reference and message.reference.message_id:
                 try:
                     ref_msg = await message.channel.fetch_message(message.reference.message_id)
                     sender_id = ref_msg.author.id
+                except Exception:
+                    pass
+            
+            # Fallback: check last 5 messages in the channel to find who used !give
+            if not sender_id:
+                try:
+                    async for hist_msg in message.channel.history(limit=5, before=message):
+                        if hist_msg.content.lower().startswith("!give") or "give" in hist_msg.content.lower():
+                            sender_id = hist_msg.author.id
+                            break
                 except Exception:
                     pass
 
@@ -170,20 +176,21 @@ async def on_message(message):
             save_json(HISTORY_FILE, history)
 
             # Confirm transaction logging in channel
+            sender_mention = f"<@{sender_id}>" if sender_id else "Unknown User"
             await message.channel.send(
                 f"📥 **Transaction Saved to History!**\n"
+                f"• **Sender:** {sender_mention}\n"
                 f"• **Recipient:** <@{recipient_id}>\n"
                 f"• **Amount:** `{amount_str}`\n"
                 f"• **Date:** `{now_str}`"
             )
 
             # Send detailed log to Log Channel
-            sender_mention = f"<@{sender_id}>" if sender_id else "Unknown User"
             log_msg = (
                 "💳 **[LOG] Currency Transfer Detected**\n"
                 f"• **Transaction ID:** #{tx_entry['id']}\n"
-                f"• **Recipient:** <@{recipient_id}>\n"
                 f"• **Sender:** {sender_mention}\n"
+                f"• **Recipient:** <@{recipient_id}>\n"
                 f"• **Amount:** `{amount_str}`\n"
                 f"• **Timestamp:** `{now_str}`"
             )
@@ -191,7 +198,7 @@ async def on_message(message):
 
 
 # =========================
-# HISTORY COMMAND (`!history`)
+# HISTORY COMMAND (`!history`) (FIXED)
 # =========================
 
 @bot.command()
@@ -201,7 +208,6 @@ async def history(ctx, member: discord.Member = None):
         await ctx.send("📭 **No transactions recorded in history yet.**")
         return
 
-    # Filter by user if specified
     if member:
         filtered_tx = [
             tx for tx in history 
@@ -213,10 +219,10 @@ async def history(ctx, member: discord.Member = None):
         title = "📜 **Global Transaction History (Latest 10)**"
 
     if not filtered_tx:
-        await ctx.send(f"📭 **No transactions found for {member.mention}.**")
+        target_name = member.mention if member else "database"
+        await ctx.send(f"📭 **No transactions found for {target_name}.**")
         return
 
-    # Take latest 10 transactions
     recent_tx = filtered_tx[-10:]
     recent_tx.reverse()
 
@@ -225,8 +231,8 @@ async def history(ctx, member: discord.Member = None):
         sender = f"<@{tx['sender_id']}>" if tx.get("sender_id") else "Unknown"
         text += (
             f"**#{tx['id']}** | 🕒 `{tx['timestamp']}`\n"
-            f"• **Recipient:** <@{tx['recipient_id']}>\n"
             f"• **Sender:** {sender}\n"
+            f"• **Recipient:** <@{tx['recipient_id']}>\n"
             f"• **Amount:** `{tx['amount']}`\n\n"
         )
 
@@ -311,46 +317,19 @@ async def remind(
     *message
 ):
     if member is None:
-        await ctx.send(
-            "❌ **Invalid client.**\n\n"
-            "Please mention a real Discord user.\n\n"
-            "Example:\n"
-            "`!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`"
-        )
+        await ctx.send("❌ **Invalid client.** Please mention a real Discord user.")
         return
 
-    if time is None:
-        await ctx.send("❌ **Time is missing.** Use HH:MM format.")
-        return
-
-    if start_date is None:
-        await ctx.send("❌ **Start date is missing.** Use YYYY-MM-DD format.")
-        return
-
-    if end_date is None:
-        await ctx.send("❌ **End date is missing.** Use YYYY-MM-DD format.")
-        return
-
-    if not message:
-        await ctx.send("❌ **Payment information is missing.**")
+    if time is None or start_date is None or end_date is None or not message:
+        await ctx.send("❌ **Missing arguments.** Example: `!remind @Client 19:00 2026-08-15 2026-09-15 2000 payment`")
         return
 
     try:
         datetime.strptime(time, "%H:%M")
-    except ValueError:
-        await ctx.send("❌ **Invalid time format.** Use HH:MM (e.g. `19:00`).")
-        return
-
-    try:
         datetime.strptime(start_date, "%Y-%m-%d")
-    except ValueError:
-        await ctx.send("❌ **Invalid start date format.** Use YYYY-MM-DD.")
-        return
-
-    try:
         datetime.strptime(end_date, "%Y-%m-%d")
     except ValueError:
-        await ctx.send("❌ **Invalid end date format.** Use YYYY-MM-DD.")
+        await ctx.send("❌ **Invalid date or time format.** Use HH:MM for time and YYYY-MM-DD for dates.")
         return
 
     reminder_data = {
@@ -364,12 +343,12 @@ async def remind(
 
     preview_text = (
         "🔍 **Reminder Confirmation Preview**\n\n"
-        f"👤 **Client to Remind:** {member.mention} (ID: `{member.id}`)\n"
+        f"👤 **Client to Remind:** {member.mention}\n"
         f"🛡️ **Proposed By (Staff):** {ctx.author.mention}\n"
         f"⏰ **Reminder Time:** **{time}** (Asia/Tbilisi)\n"
         f"📅 **Active Validity Period:** From **{start_date}** to **{end_date}**\n"
         f"💰 **Payment Information:** **{' '.join(message)}**\n\n"
-        "Please review the details above carefully and click **Confirm & Create** below to activate this agreement."
+        "Please review and click **Confirm & Create** below."
     )
 
     view = ReminderConfirmView(ctx, reminder_data)
@@ -392,19 +371,10 @@ async def edit(
     *message
 ):
     if reminder_id is None:
-        await ctx.send(
-            "❌ **Please provide a reminder ID.**\n\n"
-            "Example:\n"
-            "`!edit 1 20:00 2026-08-15 2026-09-15 2500 updated payment`"
-        )
+        await ctx.send("❌ Please provide a reminder ID. Example: `!edit 1 20:00 ...`")
         return
 
-    target_reminder = None
-    for r in reminders:
-        if r["id"] == reminder_id:
-            target_reminder = r
-            break
-
+    target_reminder = next((r for r in reminders if r["id"] == reminder_id), None)
     if not target_reminder:
         await ctx.send(f"❌ **Reminder #{reminder_id} not found.**")
         return
@@ -414,50 +384,19 @@ async def edit(
     new_end = end_date if end_date else target_reminder["end_date"]
     new_msg = " ".join(message) if message else target_reminder["message"]
 
-    if time:
-        try:
-            datetime.strptime(time, "%H:%M")
-        except ValueError:
-            await ctx.send("❌ **Invalid time format.** Use HH:MM.")
-            return
-
-    if start_date:
-        try:
-            datetime.strptime(start_date, "%Y-%m-%d")
-        except ValueError:
-            await ctx.send("❌ **Invalid start date format.** Use YYYY-MM-DD.")
-            return
-
-    if end_date:
-        try:
-            datetime.strptime(end_date, "%Y-%m-%d")
-        except ValueError:
-            await ctx.send("❌ **Invalid end date format.** Use YYYY-MM-DD.")
-            return
-
-    old_time = target_reminder["time"]
-    old_start = target_reminder["start_date"]
-    old_end = target_reminder["end_date"]
-    old_msg = target_reminder["message"]
-
     target_reminder["time"] = new_time
     target_reminder["start_date"] = new_start
     target_reminder["end_date"] = new_end
     target_reminder["message"] = new_msg
 
     save_json(REMINDERS_FILE, reminders)
-
     await ctx.send(f"✅ **Reminder #{reminder_id} has been successfully updated!**")
 
     edit_log_msg = (
         "✏️ **[LOG] Reminder Modified / Edited**\n"
         f"• **Reminder ID:** #{reminder_id}\n"
-        f"• **Modified By (Staff):** {ctx.author.mention}\n"
-        f"• **Target Client:** <@{target_reminder['user_id']}>\n\n"
-        "🔄 **Changes Applied:**\n"
-        f"• **Time:** `{old_time}` ➔ `{new_time}`\n"
-        f"• **Period:** `{old_start} to {old_end}` ➔ `{new_start} to {new_end}`\n"
-        f"• **Payment Details:** \n  Old: *{old_msg}*\n  New: *{new_msg}*"
+        f"• **Modified By:** {ctx.author.mention}\n"
+        f"• **Target Client:** <@{target_reminder['user_id']}>"
     )
     await send_system_log(edit_log_msg)
 
@@ -474,7 +413,6 @@ async def show_reminders(ctx):
         return
 
     text = "📋 **Active Reminders Directory**\n\n"
-
     for reminder in reminders:
         start = reminder.get("start_date", "N/A")
         end = reminder.get("end_date", "N/A")
@@ -484,7 +422,6 @@ async def show_reminders(ctx):
             f"⏰ Time: **{reminder['time']}** | 📅 Period: {start} to {end}\n"
             f"💰 Info: {reminder['message']}\n\n"
         )
-
     await ctx.send(text)
 
 
@@ -504,15 +441,6 @@ async def cancel(ctx, reminder_id: int = None):
             reminders.remove(reminder)
             save_json(REMINDERS_FILE, reminders)
             await ctx.send(f"🗑️ **Reminder #{reminder_id} has been cancelled and deleted.**")
-
-            cancel_log_msg = (
-                "🗑️ **[LOG] Reminder Deleted / Cancelled**\n"
-                f"• **Reminder ID:** #{reminder_id}\n"
-                f"• **Action Performed By:** {ctx.author.mention}\n"
-                f"• **Associated Client:** <@{reminder['user_id']}>\n"
-                f"• **Details was:** {reminder['message']}"
-            )
-            await send_system_log(cancel_log_msg)
             return
 
     await ctx.send("❌ **Reminder not found.**")
@@ -533,13 +461,12 @@ async def role_error(ctx, error):
 
 
 # =========================
-# REMINDER LOOP (WITH AUTO-CLEANUP & LOGGING)
+# REMINDER LOOP
 # =========================
 
 async def reminder_loop():
     await bot.wait_until_ready()
-
-    log.info("Advanced reminder loop with Auto-Cleanup started.")
+    log.info("Reminder loop started.")
 
     while not bot.is_closed():
         now = datetime.now(TIMEZONE)
@@ -547,68 +474,33 @@ async def reminder_loop():
         today_str = now.strftime("%Y-%m-%d")
 
         changed = False
-        expired_reminders = []
 
-        # 1. Auto-Cleanup expired reminders
         for reminder in reminders.copy():
             end_date = reminder.get("end_date")
             if end_date and today_str > end_date:
-                expired_reminders.append(reminder)
                 reminders.remove(reminder)
                 changed = True
 
-        for exp in expired_reminders:
-            cleanup_log_msg = (
-                "🧹 **[LOG] Auto-Cleanup Performed (Expired Contract)**\n"
-                f"• **Reminder ID:** #{exp['id']}\n"
-                f"• **Target Client:** <@{exp['user_id']}>\n"
-                f"• **End Date Was:** {exp['end_date']} (Today is {today_str})\n"
-                "• **Status:** Automatically removed from active storage."
-            )
-            await send_system_log(cleanup_log_msg)
-            log.info("Auto-cleaned expired reminder #%s", exp["id"])
-
-        # 2. Process active daily reminders
         for reminder in reminders.copy():
             start_date = reminder.get("start_date")
             end_date = reminder.get("end_date")
 
-            if start_date and end_date:
-                if not (start_date <= today_str <= end_date):
-                    continue
-
-            if reminder["time"] != current_time:
+            if start_date and end_date and not (start_date <= today_str <= end_date):
                 continue
 
-            if reminder["last_sent"] == today_str:
+            if reminder["time"] != current_time or reminder["last_sent"] == today_str:
                 continue
 
             try:
-                user = bot.get_user(reminder["user_id"])
-                if user is None:
-                    user = await bot.fetch_user(reminder["user_id"])
-
+                user = bot.get_user(reminder["user_id"]) or await bot.fetch_user(reminder["user_id"])
                 await user.send(
                     "🔔 **Payment Reminder**\n\n"
                     f"💰 {reminder['message']}\n\n"
                     f"📅 Active Period: {start_date} to {end_date}\n"
                     "Please don't forget today's payment."
                 )
-
                 reminder["last_sent"] = today_str
                 changed = True
-
-                log.info("Reminder #%s sent to %s", reminder["id"], user)
-
-                delivery_log_msg = (
-                    "📨 **[LOG] Reminder Successfully Sent**\n"
-                    f"• **Reminder ID:** #{reminder['id']}\n"
-                    f"• **Recipient Client:** <@{reminder['user_id']}>\n"
-                    f"• **Scheduled Time:** {reminder['time']}\n"
-                    f"• **Payment Content:** {reminder['message']}"
-                )
-                await send_system_log(delivery_log_msg)
-
             except Exception as e:
                 log.error("Could not send reminder #%s: %s", reminder["id"], e)
 
@@ -625,12 +517,7 @@ async def reminder_loop():
 if __name__ == "__main__":
     try:
         bot.run(TOKEN, log_handler=None)
-
-    except discord.LoginFailure:
-        log.error("Discord rejected the bot token.")
+    except Exception as e:
+        log.error("Fatal error: %s", e)
         sys.exit(1)
-
-    except discord.PrivilegedIntentsRequired:
-        log.error("Message Content Intent is not enabled.")
-        sys.exit(1)
-            
+        
