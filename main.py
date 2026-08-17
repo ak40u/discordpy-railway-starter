@@ -117,7 +117,7 @@ async def hello(ctx):
 
 
 # =========================
-# AUTOMATIC UNBELIEVABOAT LISTENER (FIXED FOR EMOJI & FORMAT)
+# AUTOMATIC UNBELIEVABOAT LISTENER (FIXED FOR EMBEDS)
 # =========================
 
 @bot.event
@@ -130,22 +130,29 @@ async def on_message(message):
     if message.author.id == bot.user.id:
         return
 
-    content = message.content
-    log.info("Inspecting message in channel: %s", content)
+    # შევკრიბოთ როგორც ჩვეულებრივი ტექსტი, ისე Embed-ების შიგთავსი
+    full_text = message.content
+    for embed in message.embeds:
+        if embed.description:
+            full_text += "\n" + embed.description
+        if embed.title:
+            full_text += "\n" + embed.title
 
-    # Check if it's UnbelievaBoat's give confirmation message
-    if "has received your" in content:
-        # Extract Recipient ID
-        recipient_match = re.search(r"<@!?(\d+)>", content)
+    log.info("Inspecting message/embed content: %s", full_text)
+
+    # Check for UnbelievaBoat confirmation message format
+    if "has received your" in full_text:
+        # Extract Recipient ID using Regex
+        recipient_match = re.search(r"<@!?(\d+)>", full_text)
         
-        # Extract Amount (handles emojis, e.g., "has received your 🪙 1" or similar)
-        amount_match = re.search(r"has received your.*?(?:<a?:\w+:\d+>|\W)*([\d,]+(?:\.\d+)?)", content)
+        # Extract Amount (handles emojis, e.g., "has received your 🪙 1")
+        amount_match = re.search(r"has received your.*?(?:<a?:\w+:\d+>|\W)*([\d,]+(?:\.\d+)?)", full_text)
 
         if recipient_match:
             recipient_id = int(recipient_match.group(1))
             amount_str = amount_match.group(1).replace(",", "") if amount_match else "Unknown"
             
-            # Find sender from reply reference or recent channel messages
+            # Try to find sender from message reference
             sender_id = None
             if message.reference and message.reference.message_id:
                 try:
@@ -154,6 +161,7 @@ async def on_message(message):
                 except Exception:
                     pass
             
+            # Fallback: check last messages in history
             if not sender_id:
                 try:
                     async for hist_msg in message.channel.history(limit=10, before=message):
@@ -541,4 +549,4 @@ if __name__ == "__main__":
     except Exception as e:
         log.error("Fatal error: %s", e)
         sys.exit(1)
-            
+    
