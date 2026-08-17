@@ -32,7 +32,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    ai_model = genai.GenerativeModel("models/gemini-1.5-flash")
+    ai_model = genai.GenerativeModel("gemini-1.5-flash")
 else:
     ai_model = None
 
@@ -119,7 +119,7 @@ async def on_message(message):
                     await message.channel.send("AI გასაღები არ არის მითითებული.")
             except Exception as e:
                 log.error(f"AI Error: {e}")
-                await message.channel.send("Sorry, I am having trouble connecting to the support system right now.")
+                await message.channel.send("AI Error occurred, check logs.")
         return
 
     if message.channel.id != TRANSACTION_CHANNEL_ID:
@@ -354,4 +354,4 @@ async def reminder_loop():
 
 if __name__ == "__main__":
     bot.run(TOKEN)
-            
+        
