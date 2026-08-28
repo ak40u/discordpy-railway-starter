@@ -1,7 +1,8 @@
 # Discord bot starter for Railway (discord.py)
 
 A minimal Discord bot that actually builds: current `discord.py`, a pinned Python
-runtime, and clear errors when the token or intents are wrong.
+runtime, slash commands that need no privileged intent, and clear errors when the
+token is wrong.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/templates)
 
@@ -29,22 +30,30 @@ it underneath you.
 
 1. Create an application at the [Discord Developer Portal](https://discord.com/developers/applications).
 2. Under **Bot**, reset the token and copy it.
-3. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**.
-   Without it the bot starts and then exits with an explicit error.
-4. Set `DISCORD_TOKEN` in Railway.
-5. Under **OAuth2 → URL Generator**, pick scopes `bot` and `applications.commands`,
+3. Set `DISCORD_TOKEN` in Railway.
+4. Under **OAuth2 → URL Generator**, pick scopes `bot` and `applications.commands`,
    grant *Send Messages*, and open the generated URL to invite it.
 
-Send `!ping` in any channel it can see.
+Type `/ping` in any channel it can see. A global slash command registration can
+take up to an hour to reach every server the first time.
 
 ## Commands
 
 | Command | Does |
 |---------|------|
-| `!ping` | Replies with the gateway latency |
-| `!hello` | Replies with a greeting |
+| `/ping` | Replies with the gateway latency |
+| `/hello` | Replies with a greeting |
 
-Add your own in `main.py` with the `@bot.command()` decorator.
+Add your own in `main.py` with the `@bot.tree.command()` decorator.
+
+### Prefix commands
+
+`!ping` and `!hello` are defined too, but reading message text requires the
+**Message Content** privileged intent. To use them, enable it in the Developer
+Portal under **Bot → Privileged Gateway Intents** and set
+`ENABLE_MESSAGE_CONTENT=true`. If the variable is on while the portal switch is
+off, the bot says so in the log and starts with slash commands only instead of
+failing the deployment.
 
 ## Run locally
 
@@ -58,6 +67,7 @@ DISCORD_TOKEN=your-token python main.py
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `DISCORD_TOKEN` | yes | Bot token from the Developer Portal |
+| `ENABLE_MESSAGE_CONTENT` | no | `true` turns on prefix commands; needs the Message Content intent |
 
 ## License
 
